@@ -11,6 +11,7 @@ import Analytics from "@/pages/Analytics";
 import Pricing from "@/pages/Pricing";
 import StorePreview from "@/pages/StorePreview";
 import Customers from "@/pages/Customers";
+import Broadcasts from "@/pages/Broadcasts";
 import Login from "@/pages/Login";
 import { isAuthenticated } from "@/services/auth";
 
@@ -39,6 +40,7 @@ function Router() {
       <Route path="/analytics" component={() => <ProtectedRoute component={Analytics} />} />
       <Route path="/pricing" component={() => <ProtectedRoute component={Pricing} />} />
       <Route path="/customers" component={() => <ProtectedRoute component={Customers} />} />
+      <Route path="/broadcasts" component={() => <ProtectedRoute component={Broadcasts} />} />
       <Route path="/store-preview" component={() => <ProtectedRoute component={StorePreview} />} />
       <Route>
         <div className="flex items-center justify-center min-h-screen text-muted-foreground">
