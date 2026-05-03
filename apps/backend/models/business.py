@@ -24,3 +24,4 @@ class Business(Base):
     orders = relationship("Order", back_populates="business")
     customers = relationship("Customer", back_populates="business", cascade="all, delete-orphan")
     broadcasts = relationship("Broadcast", back_populates="business", cascade="all, delete-orphan")
+    bot_configs = relationship("BotConfig", back_populates="business", cascade="all, delete-orphan")
