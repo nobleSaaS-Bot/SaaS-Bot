@@ -9,7 +9,7 @@ from app.database import get_db
 from core.security import get_current_business
 from core.queue import enqueue_broadcast
 from models.broadcast import Broadcast, BroadcastStatus, BroadcastSegment
-from models.customer import Customer, CustomerSegment
+from models.customer import Customer
 
 router = APIRouter()
 
@@ -56,12 +56,21 @@ class BroadcastStats(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+_SEGMENT_MAP: dict = {
+    "new": "new",
+    "regular": "repeat_buyer",
+    "vip": "vip",
+    "at_risk": "at_risk",
+    "churned": "at_risk",
+}
+
+
 async def count_recipients(db: AsyncSession, business_id: str, segment: BroadcastSegment, store_id: Optional[str]) -> int:
-    filters = [Customer.business_id == business_id, Customer.is_blocked == False]
-    if store_id:
-        filters.append(Customer.store_id == store_id)
+    filters = [Customer.business_id == str(business_id), Customer.is_blocked == False]
     if segment != BroadcastSegment.all:
-        filters.append(Customer.segment == CustomerSegment(segment.value))
+        seg_string = _SEGMENT_MAP.get(segment.value)
+        if seg_string:
+            filters.append(Customer.segments.contains([seg_string]))
     return await db.scalar(select(func.count()).where(and_(*filters))) or 0
 
 

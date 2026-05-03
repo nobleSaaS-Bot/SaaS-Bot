@@ -152,8 +152,9 @@ async def handle_callback_query(callback_query: dict) -> None:
     data = callback_query.get("data", "")
     callback_id = callback_query["id"]
 
-    from services.telegram.bot_service import answer_callback_query
-    await answer_callback_query(callback_id)
+    # Lazy import to avoid circular dependency with bot_service
+    from services.telegram.bot_service import answer_callback_query as _acq
+    await _acq(callback_id)
 
     async with async_session_factory() as db:
         result = await db.execute(
