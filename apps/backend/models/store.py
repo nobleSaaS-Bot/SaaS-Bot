@@ -30,3 +30,4 @@ class Store(Base):
     categories = relationship("Category", back_populates="store", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="store")
     flows = relationship("Flow", back_populates="store", cascade="all, delete-orphan")
+    customers = relationship("Customer", back_populates="store", cascade="all, delete-orphan")

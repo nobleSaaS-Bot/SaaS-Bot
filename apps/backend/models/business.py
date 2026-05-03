@@ -22,3 +22,4 @@ class Business(Base):
     stores = relationship("Store", back_populates="business", cascade="all, delete-orphan")
     subscriptions = relationship("Subscription", back_populates="business")
     orders = relationship("Order", back_populates="business")
+    customers = relationship("Customer", back_populates="business", cascade="all, delete-orphan")

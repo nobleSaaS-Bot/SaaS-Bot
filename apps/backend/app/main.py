@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database import engine
-from routes import auth, products, stores, flows, payments, billing, ai, analytics
+from routes import auth, products, stores, flows, payments, billing, ai, analytics, customers
 from routes.webhooks import telegram, stripe, telebirr, mpesa
 
 
@@ -36,6 +36,7 @@ app.include_router(payments.router, prefix="/api/payments", tags=["payments"])
 app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
+app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
 
 app.include_router(telegram.router, prefix="/webhooks/telegram", tags=["webhooks"])
 app.include_router(stripe.router, prefix="/webhooks/stripe", tags=["webhooks"])
