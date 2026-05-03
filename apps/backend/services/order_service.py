@@ -5,6 +5,9 @@ from models.order import Order, OrderStatus
 from models.session import TelegramSession
 from services.telegram.checkout import send_order_confirmation
 
+# Architecture Addition
+from routes.customers import record_order_for_customer
+
 
 async def create_order_from_cart(
     db: AsyncSession,
@@ -50,7 +53,15 @@ async def update_order_status(
     order = result.scalar_one_or_none()
     if not order:
         raise ValueError("Order not found")
+    
     order.status = status
+    
+    # Architecture Addition: Record order for customer analytics when payment is confirmed
+    if status == OrderStatus.PAID: # Or your specific 'completed' status
+        # str(order.customer_id) assumes your Order model has a customer relationship/ID
+        # If your Order model uses telegram_id, adjust accordingly
+        await record_order_for_customer(db, str(order.customer_telegram_id), order.total)
+
     await db.commit()
     await db.refresh(order)
     return order
