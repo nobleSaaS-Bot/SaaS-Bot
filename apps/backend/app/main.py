@@ -6,11 +6,13 @@ from app.config import settings
 from app.database import engine
 from routes import auth, products, stores, flows, payments, billing, ai, analytics, customers, broadcasts, bots
 from routes.webhooks import telegram, stripe, telebirr, mpesa
+from core.telegram_client import close_http_client
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
+    await close_http_client()
 
 
 app = FastAPI(
@@ -36,7 +38,7 @@ app.include_router(payments.router, prefix="/api/payments", tags=["payments"])
 app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
-app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
+app.include_router(customers.router, prefix="/api", tags=["customers"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])
 app.include_router(bots.router, prefix="/api", tags=["bots"])
 

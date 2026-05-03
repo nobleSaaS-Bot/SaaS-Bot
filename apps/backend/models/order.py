@@ -24,6 +24,7 @@ class Order(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     business_id: Mapped[str] = mapped_column(String, ForeignKey("businesses.id"), nullable=False)
     store_id: Mapped[str] = mapped_column(String, ForeignKey("stores.id"), nullable=False)
+    customer_id: Mapped[str | None] = mapped_column(String, ForeignKey("customers.id"), nullable=True)
     customer_telegram_id: Mapped[str] = mapped_column(String(100), nullable=False)
     customer_name: Mapped[str | None] = mapped_column(String(255))
     customer_phone: Mapped[str | None] = mapped_column(String(50))
@@ -41,4 +42,5 @@ class Order(Base):
 
     business = relationship("Business", back_populates="orders")
     store = relationship("Store", back_populates="orders")
+    customer = relationship("Customer", back_populates="orders")
     payment = relationship("Payment", back_populates="order", uselist=False)

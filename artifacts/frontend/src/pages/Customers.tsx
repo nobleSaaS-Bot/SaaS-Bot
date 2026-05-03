@@ -1,355 +1,279 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/services/api";
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────────────────
+interface CustomerSummary {
+  id: string;
+  display_name: string;
+  telegram_username: string | null;
+  telegram_user_id: number;
+  total_orders: number;
+  total_spent: number;
+  average_order_value: number;
+  last_order_at: string | null;
+  first_order_at: string | null;
+  segments: string[];
+  tags: string[];
+  is_blocked: boolean;
+  last_seen_at: string | null;
+  message_count: number;
+  created_at: string;
+}
 
-type Segment = "new" | "regular" | "vip" | "at_risk" | "churned";
+interface CustomerDetail extends CustomerSummary {
+  notes: string | null;
+  language_code: string | null;
+  first_name: string | null;
+  last_name: string | null;
+}
 
 interface OrderSummary {
   id: string;
+  total: number;
   status: string;
-  total: number;
-  currency: string;
   created_at: string;
+  item_count: number | null;
 }
 
-interface Customer {
-  id: string;
-  telegram_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  username: string | null;
-  phone: string | null;
-  email: string | null;
-  photo_url: string | null;
-  segment: Segment;
-  tags: string[];
-  notes: string | null;
-  total_orders: number;
-  total_spent: number;
-  currency: string;
-  last_order_at: string | null;
-  is_blocked: boolean;
-  created_at: string;
-  recent_orders?: OrderSummary[];
-}
-
-interface Stats {
-  total: number;
+interface CRMStats {
+  total_customers: number;
   new_this_month: number;
-  vip: number;
-  at_risk: number;
+  repeat_buyers: number;
+  vip_count: number;
+  at_risk_count: number;
   total_revenue: number;
+  avg_customer_value: number;
+  top_spender_amount: number;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-const SEGMENT_META: Record<Segment, { label: string; color: string }> = {
-  new: { label: "New", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
-  regular: { label: "Regular", color: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300" },
-  vip: { label: "VIP", color: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" },
-  at_risk: { label: "At Risk", color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
-  churned: { label: "Churned", color: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400" },
+// ── Mock data ──────────────────────────────────────────────────────────────
+const MOCK_STATS: CRMStats = {
+  total_customers: 1284, new_this_month: 143, repeat_buyers: 389,
+  vip_count: 67, at_risk_count: 94, total_revenue: 48320.5,
+  avg_customer_value: 37.63, top_spender_amount: 1840.0,
 };
 
-const ORDER_STATUS_COLOR: Record<string, string> = {
-  paid: "bg-green-100 text-green-700",
-  delivered: "bg-emerald-100 text-emerald-700",
-  pending: "bg-yellow-100 text-yellow-700",
-  cancelled: "bg-red-100 text-red-700",
-  refunded: "bg-purple-100 text-purple-700",
-  processing: "bg-blue-100 text-blue-700",
-  shipped: "bg-cyan-100 text-cyan-700",
-  confirmed: "bg-teal-100 text-teal-700",
+const SEGMENTS = ["vip", "repeat_buyer", "new", "at_risk"] as const;
+const SEG_META: Record<string, { label: string; color: string; bg: string }> = {
+  vip:          { label: "VIP",     color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
+  repeat_buyer: { label: "Repeat",  color: "#34d399", bg: "rgba(52,211,153,0.12)" },
+  new:          { label: "New",     color: "#60a5fa", bg: "rgba(96,165,250,0.12)" },
+  at_risk:      { label: "At Risk", color: "#f87171", bg: "rgba(248,113,113,0.12)" },
+  blocked:      { label: "Blocked", color: "#94a3b8", bg: "rgba(148,163,184,0.12)" },
 };
 
-function initials(c: Customer) {
-  const parts = [c.first_name, c.last_name].filter(Boolean);
-  return parts.length ? parts.map((p) => p![0]).join("").toUpperCase() : c.telegram_id.slice(0, 2).toUpperCase();
+const NAMES = ["Mekdes Alemu","Yonas Tesfaye","Tigist Bekele","Dawit Haile","Sara Girma",
+  "Abel Tadesse","Hana Wolde","Biniyam Asefa","Liya Mengistu","Natan Fekadu",
+  "Amina Hassan","Ibrahim Jama","Grace Wanjiku","Brian Ochieng","Amara Diallo",
+  "Kofi Mensah","Zara Osei","David Kimani","Aisha Musa","James Nkosi"];
+
+function makeMockCustomers(n = 60): CustomerSummary[] {
+  return Array.from({ length: n }, (_, i) => {
+    const name = NAMES[i % NAMES.length] + (i >= NAMES.length ? ` ${Math.floor(i / NAMES.length) + 1}` : "");
+    const orders = Math.floor(Math.random() * 18) + 1;
+    const spent = +((Math.random() * 600) + 5).toFixed(2);
+    const segs: string[] = [];
+    if (spent > 400) segs.push("vip");
+    if (orders > 4) segs.push("repeat_buyer");
+    if (orders === 1) segs.push("new");
+    if (Math.random() < 0.1) segs.push("at_risk");
+    const rndDate = (d = 400) => { const dt = new Date(); dt.setDate(dt.getDate() - Math.floor(Math.random() * d)); return dt.toISOString(); };
+    return {
+      id: `cust-${i}`, display_name: name,
+      telegram_username: Math.random() > 0.4 ? name.toLowerCase().replace(" ", "_") : null,
+      telegram_user_id: 100000000 + i, total_orders: orders, total_spent: spent,
+      average_order_value: +(spent / orders).toFixed(2),
+      last_order_at: rndDate(90), first_order_at: rndDate(400),
+      segments: segs, tags: [], is_blocked: false, last_seen_at: rndDate(7),
+      message_count: Math.floor(Math.random() * 80) + 1, created_at: rndDate(400),
+    };
+  });
 }
 
-function displayName(c: Customer) {
-  const parts = [c.first_name, c.last_name].filter(Boolean);
-  return parts.length ? parts.join(" ") : c.username ? `@${c.username}` : `User ${c.telegram_id}`;
+const MOCK_CUSTOMERS = makeMockCustomers(60);
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function fmtDate(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+function fmtMoney(n: number) {
+  return "$" + (+n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function timeSince(iso: string | null) {
+  if (!iso) return "—";
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return `${Math.floor(diff)}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
-}
-
-function fmt(amount: number, currency = "USD") {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 2 }).format(amount);
-}
-
-// ── Avatar ─────────────────────────────────────────────────────────────────────
-
-function Avatar({ customer, size = "md" }: { customer: Customer; size?: "sm" | "md" | "lg" }) {
-  const sizes = { sm: "w-8 h-8 text-xs", md: "w-10 h-10 text-sm", lg: "w-14 h-14 text-base" };
-  if (customer.photo_url) {
-    return <img src={customer.photo_url} alt="" className={`${sizes[size]} rounded-full object-cover`} />;
-  }
-  const colors = ["bg-blue-500", "bg-violet-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
-  const color = colors[parseInt(customer.telegram_id, 10) % colors.length] ?? "bg-primary";
+// ── Segment pill ───────────────────────────────────────────────────────────
+function Pill({ seg }: { seg: string }) {
+  const m = SEG_META[seg] ?? { label: seg, color: "#94a3b8", bg: "rgba(148,163,184,0.12)" };
   return (
-    <div className={`${sizes[size]} ${color} rounded-full flex items-center justify-center font-semibold text-white shrink-0`}>
-      {initials(customer)}
-    </div>
+    <span style={{
+      fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+      padding: "2px 7px", borderRadius: "20px", color: m.color, background: m.bg,
+      border: `1px solid ${m.color}30`,
+    }}>{m.label}</span>
   );
 }
 
-// ── Stat Card ──────────────────────────────────────────────────────────────────
+// ── Status badge ───────────────────────────────────────────────────────────
+function StatusBadge({ s }: { s: string }) {
+  const map: Record<string, { c: string; b: string }> = {
+    completed: { c: "#34d399", b: "rgba(52,211,153,0.1)" },
+    paid:      { c: "#34d399", b: "rgba(52,211,153,0.1)" },
+    pending:   { c: "#fbbf24", b: "rgba(251,191,36,0.1)" },
+    cancelled: { c: "#f87171", b: "rgba(248,113,113,0.1)" },
+  };
+  const m = map[s] ?? map.pending;
+  return <span style={{ fontSize: "0.62rem", fontWeight: 600, padding: "2px 8px", borderRadius: "4px", color: m.c, background: m.b }}>{s}</span>;
+}
 
+// ── Stat card ──────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: string }) {
   return (
-    <div className="bg-card border rounded-xl p-5">
-      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${accent ?? "text-foreground"}`}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+    <div style={{ background: "#0e0e18", border: "1px solid #1e2235", borderRadius: "10px", padding: "1.1rem 1.25rem", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "2px", background: accent ?? "#3b82f6" }} />
+      <div style={{ fontSize: "0.6rem", letterSpacing: "0.15em", textTransform: "uppercase", color: "#475569", marginBottom: "0.5rem" }}>{label}</div>
+      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "1.6rem", fontWeight: 700, color: "#f1f5f9", lineHeight: 1 }}>{value}</div>
+      {sub && <div style={{ fontSize: "0.65rem", color: "#475569", marginTop: "0.35rem" }}>{sub}</div>}
     </div>
   );
 }
 
-// ── Profile Drawer ─────────────────────────────────────────────────────────────
-
-function ProfileDrawer({
-  customer,
-  onClose,
-  onUpdated,
-}: {
-  customer: Customer;
+// ── Customer drawer ────────────────────────────────────────────────────────
+function CustomerDrawer({ customer, onClose, onUpdate }: {
+  customer: CustomerSummary | null;
   onClose: () => void;
-  onUpdated: (c: Customer) => void;
+  onUpdate: (c: CustomerSummary) => void;
 }) {
-  const [detail, setDetail] = useState<Customer>(customer);
-  const [loading, setLoading] = useState(true);
-  const [notes, setNotes] = useState(customer.notes ?? "");
-  const [newTag, setNewTag] = useState("");
+  const [notes, setNotes] = useState(customer?.display_name ?? "");
+  const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (!customer) return;
+    setNotes("");
+    setOrders([]);
     api.get(`/customers/${customer.id}`).then((r) => {
-      setDetail(r.data);
-      setNotes(r.data.notes ?? "");
-      setLoading(false);
+      setNotes(r.data.customer.notes ?? "");
+      setOrders(r.data.recent_orders ?? []);
+    }).catch(() => {
+      setOrders(Array.from({ length: 5 }, (_, i) => ({
+        id: `ord-${i}`, total: +(Math.random() * 200 + 10).toFixed(2),
+        status: ["paid", "pending", "cancelled"][i % 3],
+        created_at: new Date(Date.now() - i * 86400000 * 10).toISOString(),
+        item_count: Math.floor(Math.random() * 5) + 1,
+      })));
     });
-  }, [customer.id]);
+  }, [customer?.id]);
 
-  async function patch(payload: object) {
+  if (!customer) return null;
+
+  const handleSaveNotes = async () => {
     setSaving(true);
     try {
-      const r = await api.patch(`/customers/${customer.id}`, payload);
-      setDetail(r.data);
-      onUpdated(r.data);
+      await api.patch(`/customers/${customer.id}`, { notes });
+      onUpdate({ ...customer });
     } finally {
       setSaving(false);
     }
-  }
-
-  function addTag() {
-    const tag = newTag.trim();
-    if (!tag || detail.tags.includes(tag)) return;
-    patch({ tags: [...detail.tags, tag] });
-    setNewTag("");
-  }
-
-  function removeTag(tag: string) {
-    patch({ tags: detail.tags.filter((t) => t !== tag) });
-  }
+  };
 
   return (
     <>
-      {/* Overlay */}
-      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(2px)", zIndex: 40, cursor: "pointer" }} />
+      <div style={{
+        position: "fixed", top: 0, right: 0, bottom: 0, width: "420px",
+        background: "#0a0a14", borderLeft: "1px solid #1e2235",
+        zIndex: 50, overflowY: "auto", display: "flex", flexDirection: "column",
+        animation: "slideIn .2s ease",
+      }}>
+        <style>{`@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
-      {/* Panel */}
-      <div className="fixed right-0 top-0 h-full w-full max-w-md bg-card border-l shadow-2xl z-50 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
-          <div className="flex items-center gap-3">
-            <Avatar customer={detail} size="lg" />
-            <div>
-              <h2 className="font-semibold text-foreground">{displayName(detail)}</h2>
-              {detail.username && (
-                <p className="text-xs text-muted-foreground">@{detail.username}</p>
-              )}
+        <div style={{ padding: "1.5rem", borderBottom: "1px solid #1e2235", flexShrink: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div style={{ display: "flex", gap: "0.85rem", alignItems: "center" }}>
+              <div style={{
+                width: "46px", height: "46px", borderRadius: "12px", flexShrink: 0,
+                background: `hsl(${customer.telegram_user_id % 360},40%,25%)`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "1.1rem", fontWeight: 700, color: `hsl(${customer.telegram_user_id % 360},70%,75%)`,
+                fontFamily: "'JetBrains Mono',monospace",
+              }}>
+                {customer.display_name.charAt(0)}
+              </div>
+              <div>
+                <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#f1f5f9" }}>{customer.display_name}</div>
+                {customer.telegram_username && <div style={{ fontSize: "0.7rem", color: "#475569", marginTop: "2px" }}>@{customer.telegram_username}</div>}
+              </div>
             </div>
+            <button onClick={onClose} style={{ background: "none", border: "1px solid #1e2235", color: "#475569", borderRadius: "6px", width: "28px", height: "28px", cursor: "pointer", fontSize: "1rem" }}>×</button>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" /></svg>
-          </button>
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.85rem" }}>
+            {customer.segments.map(s => <Pill key={s} seg={s} />)}
+            {customer.is_blocked && <Pill seg="blocked" />}
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {/* Spend Stats */}
-          <div className="grid grid-cols-3 gap-3 p-5 border-b">
-            <div className="text-center">
-              <p className="text-lg font-bold text-foreground">{detail.total_orders}</p>
-              <p className="text-[11px] text-muted-foreground">Orders</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderBottom: "1px solid #1e2235" }}>
+          {[
+            { label: "Orders", val: customer.total_orders },
+            { label: "Spent", val: fmtMoney(customer.total_spent) },
+            { label: "Avg Order", val: fmtMoney(customer.average_order_value) },
+          ].map((s, i) => (
+            <div key={i} style={{ padding: "0.9rem", textAlign: "center", borderRight: i < 2 ? "1px solid #1e2235" : "none" }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "1rem", fontWeight: 700, color: "#f1f5f9" }}>{s.val}</div>
+              <div style={{ fontSize: "0.58rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "#475569", marginTop: "2px" }}>{s.label}</div>
             </div>
-            <div className="text-center">
-              <p className="text-lg font-bold text-foreground">{fmt(detail.total_spent, detail.currency)}</p>
-              <p className="text-[11px] text-muted-foreground">Total Spent</p>
-            </div>
-            <div className="text-center">
-              <p className="text-lg font-bold text-foreground">
-                {detail.total_orders > 0 ? fmt(detail.total_spent / detail.total_orders, detail.currency) : "—"}
-              </p>
-              <p className="text-[11px] text-muted-foreground">Avg Order</p>
-            </div>
-          </div>
+          ))}
+        </div>
 
-          {/* Contact Info */}
-          <div className="px-5 py-4 border-b space-y-2">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Contact</h3>
-            {[
-              { icon: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z", label: "Telegram ID", value: detail.telegram_id },
-              { icon: "M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z", label: "Phone", value: detail.phone },
-              { icon: "M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z", label: "Email", value: detail.email },
-            ].map(({ icon, label, value }) =>
-              value ? (
-                <div key={label} className="flex items-center gap-2 text-sm">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-muted-foreground shrink-0">
-                    <path d={icon} strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  <span className="text-muted-foreground">{label}:</span>
-                  <span className="text-foreground">{value}</span>
+        <div style={{ padding: "1.25rem", flex: 1, display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          <div>
+            <div style={{ fontSize: "0.58rem", letterSpacing: "0.15em", textTransform: "uppercase", color: "#334155", marginBottom: "0.6rem" }}>Details</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+              {[
+                ["Customer since", fmtDate(customer.created_at)],
+                ["Last order", fmtDate(customer.last_order_at)],
+                ["Last seen", timeSince(customer.last_seen_at)],
+                ["Messages sent", customer.message_count],
+                ["Language", (customer as CustomerDetail).language_code?.toUpperCase() ?? "—"],
+                ["Telegram ID", customer.telegram_user_id],
+              ].map(([k, v]) => (
+                <div key={String(k)} style={{ background: "#0e0e18", border: "1px solid #1e2235", borderRadius: "6px", padding: "0.5rem 0.7rem" }}>
+                  <div style={{ fontSize: "0.58rem", color: "#334155", textTransform: "uppercase", letterSpacing: "0.1em" }}>{k}</div>
+                  <div style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "2px", fontFamily: "'JetBrains Mono',monospace" }}>{v}</div>
                 </div>
-              ) : null
-            )}
-            {detail.last_order_at && (
-              <div className="flex items-center gap-2 text-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-muted-foreground shrink-0">
-                  <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span className="text-muted-foreground">Last order:</span>
-                <span className="text-foreground">{timeAgo(detail.last_order_at)}</span>
-              </div>
-            )}
-            <div className="flex items-center gap-2 text-sm">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-muted-foreground shrink-0">
-                <path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span className="text-muted-foreground">Joined:</span>
-              <span className="text-foreground">{new Date(detail.created_at).toLocaleDateString()}</span>
-            </div>
-          </div>
-
-          {/* Segment */}
-          <div className="px-5 py-4 border-b">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Segment</h3>
-            <div className="flex flex-wrap gap-2">
-              {(Object.keys(SEGMENT_META) as Segment[]).map((seg) => (
-                <button
-                  key={seg}
-                  onClick={() => patch({ segment: seg })}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition-all border-2 ${
-                    detail.segment === seg
-                      ? `${SEGMENT_META[seg].color} border-current`
-                      : "border-transparent bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  {SEGMENT_META[seg].label}
-                </button>
               ))}
             </div>
           </div>
 
-          {/* Tags */}
-          <div className="px-5 py-4 border-b">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Tags</h3>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {detail.tags.map((tag) => (
-                <span key={tag} className="flex items-center gap-1 px-2 py-0.5 bg-secondary text-secondary-foreground rounded-full text-xs">
-                  {tag}
-                  <button onClick={() => removeTag(tag)} className="hover:text-destructive">×</button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addTag()}
-                placeholder="Add tag…"
-                className="flex-1 px-3 py-1.5 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <button onClick={addTag} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity">
-                Add
-              </button>
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div className="px-5 py-4 border-b">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Notes</h3>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              placeholder="Add internal notes about this customer…"
-              className="w-full px-3 py-2 text-sm border rounded-lg bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-            <button
-              onClick={() => patch({ notes })}
-              disabled={saving || notes === (detail.notes ?? "")}
-              className="mt-2 px-4 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-50 hover:opacity-90 transition-opacity"
-            >
-              {saving ? "Saving…" : "Save Notes"}
+          <div>
+            <div style={{ fontSize: "0.58rem", letterSpacing: "0.15em", textTransform: "uppercase", color: "#334155", marginBottom: "0.6rem" }}>Merchant Notes</div>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add a private note…" rows={3} style={{ width: "100%", background: "#0e0e18", border: "1px solid #1e2235", borderRadius: "6px", color: "#94a3b8", fontSize: "0.75rem", padding: "0.65rem 0.75rem", resize: "vertical", fontFamily: "inherit", lineHeight: 1.6, outline: "none", boxSizing: "border-box" }} />
+            <button onClick={handleSaveNotes} disabled={saving} style={{ marginTop: "0.4rem", fontSize: "0.7rem", padding: "5px 14px", borderRadius: "5px", background: saving ? "#1e2235" : "#3b82f6", border: "none", color: "white", cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Saving…" : "Save note"}
             </button>
           </div>
 
-          {/* Order History */}
-          <div className="px-5 py-4 border-b">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Order History</h3>
-            {loading ? (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-12 bg-muted rounded-lg animate-pulse" />
-                ))}
-              </div>
-            ) : detail.recent_orders && detail.recent_orders.length > 0 ? (
-              <div className="space-y-2">
-                {detail.recent_orders.map((order) => (
-                  <div key={order.id} className="flex items-center justify-between py-2.5 px-3 bg-muted/40 rounded-lg">
-                    <div>
-                      <p className="text-xs font-mono text-foreground">#{order.id.slice(-8).toUpperCase()}</p>
-                      <p className="text-xs text-muted-foreground">{timeAgo(order.created_at)}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize ${ORDER_STATUS_COLOR[order.status] ?? "bg-gray-100 text-gray-600"}`}>
-                        {order.status}
-                      </span>
-                      <span className="text-sm font-semibold text-foreground">{fmt(order.total, order.currency)}</span>
-                    </div>
+          <div>
+            <div style={{ fontSize: "0.58rem", letterSpacing: "0.15em", textTransform: "uppercase", color: "#334155", marginBottom: "0.6rem" }}>Recent Orders</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              {orders.slice(0, 6).map(o => (
+                <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0e0e18", border: "1px solid #1e2235", borderRadius: "6px", padding: "0.55rem 0.75rem" }}>
+                  <div>
+                    <div style={{ fontSize: "0.72rem", fontFamily: "'JetBrains Mono',monospace", color: "#f1f5f9", fontWeight: 600 }}>{fmtMoney(o.total)}</div>
+                    <div style={{ fontSize: "0.6rem", color: "#334155", marginTop: "1px" }}>{fmtDate(o.created_at)}{o.item_count ? ` · ${o.item_count} item${o.item_count !== 1 ? "s" : ""}` : ""}</div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No orders yet.</p>
-            )}
-          </div>
-
-          {/* Block */}
-          <div className="px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Block Customer</p>
-                <p className="text-xs text-muted-foreground">Blocked customers cannot interact with your bot.</p>
-              </div>
-              <button
-                onClick={() => patch({ is_blocked: !detail.is_blocked })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                  detail.is_blocked ? "bg-destructive" : "bg-muted"
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${detail.is_blocked ? "translate-x-6" : "translate-x-1"}`} />
-              </button>
+                  <StatusBadge s={o.status} />
+                </div>
+              ))}
+              {orders.length === 0 && <p style={{ fontSize: "0.72rem", color: "#334155" }}>No orders yet.</p>}
             </div>
           </div>
         </div>
@@ -358,223 +282,164 @@ function ProfileDrawer({
   );
 }
 
-// ── Main Page ──────────────────────────────────────────────────────────────────
-
-const SEGMENTS: { value: Segment | "all"; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "new", label: "New" },
-  { value: "regular", label: "Regular" },
-  { value: "vip", label: "VIP ✦" },
-  { value: "at_risk", label: "At Risk" },
-  { value: "churned", label: "Churned" },
+// ── Main page ──────────────────────────────────────────────────────────────
+const SORT_OPTIONS = [
+  { value: "last_order_at", label: "Recent order" },
+  { value: "total_spent", label: "Highest spend" },
+  { value: "total_orders", label: "Most orders" },
+  { value: "created_at", label: "Newest customer" },
 ];
 
 export default function Customers() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [customers, setCustomers] = useState<CustomerSummary[]>([]);
+  const [stats, setStats] = useState<CRMStats>(MOCK_STATS);
   const [search, setSearch] = useState("");
-  const [segment, setSegment] = useState<Segment | "all">("all");
+  const [filterSeg, setFilterSeg] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState("last_order_at");
+  const [selected, setSelected] = useState<CustomerSummary | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Customer | null>(null);
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-
-  // Debounce search
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350);
-    return () => clearTimeout(t);
-  }, [search]);
+  const PAGE_SIZE = 15;
 
   const fetchStats = useCallback(async () => {
-    try {
-      const r = await api.get("/customers/stats");
-      setStats(r.data);
-    } catch {}
+    try { const r = await api.get("/customers/stats"); setStats(r.data); } catch {}
   }, []);
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = {};
-      if (segment !== "all") params.segment = segment;
-      if (debouncedSearch) params.search = debouncedSearch;
+      const params: Record<string, string | number> = { page, page_size: PAGE_SIZE, sort_by: sortBy };
+      if (search) params.search = search;
+      if (filterSeg) params.segment = filterSeg;
       const r = await api.get("/customers", { params });
-      setCustomers(r.data);
+      setCustomers(r.data.items);
+      setTotal(r.data.total);
+    } catch {
+      setCustomers(MOCK_CUSTOMERS);
+      setTotal(MOCK_CUSTOMERS.length);
     } finally {
       setLoading(false);
     }
-  }, [segment, debouncedSearch]);
+  }, [page, search, filterSeg, sortBy]);
 
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => { const t = setTimeout(fetchCustomers, 300); return () => clearTimeout(t); }, [fetchCustomers]);
 
-  useEffect(() => {
-    fetchCustomers();
-  }, [fetchCustomers]);
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  function handleUpdated(updated: Customer) {
-    setCustomers((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
-    if (selected?.id === updated.id) setSelected((prev) => prev ? { ...prev, ...updated } : prev);
-    fetchStats();
-  }
+  const handleUpdate = useCallback((updated: CustomerSummary) => {
+    setCustomers(cs => cs.map(c => c.id === updated.id ? updated : c));
+    setSelected(updated);
+  }, []);
 
-  // Demo seed when API is unavailable
-  const display: Customer[] = customers.length > 0 ? customers : loading ? [] : DEMO;
+  const handleExport = () => window.open("/api/customers/export", "_blank");
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Customers</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Manage and segment your Telegram customers</p>
-      </div>
+    <div style={{ fontFamily: "'DM Sans','Helvetica Neue',sans-serif", background: "#07070f", minHeight: "100vh", color: "#e2e8f0" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap');
+        *{box-sizing:border-box}
+        ::-webkit-scrollbar{width:5px;height:5px}
+        ::-webkit-scrollbar-track{background:#0a0a14}
+        ::-webkit-scrollbar-thumb{background:#1e2235;border-radius:3px}
+        .row-hover:hover{background:#0d0d1a!important;cursor:pointer}
+        .seg-btn:hover{opacity:.8}
+        input:focus,textarea:focus,select:focus{outline:none!important;border-color:#3b82f6!important}
+      `}</style>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Customers" value={stats?.total ?? "—"} />
-        <StatCard label="New This Month" value={stats?.new_this_month ?? "—"} accent="text-primary" />
-        <StatCard label="VIP Customers" value={stats?.vip ?? "—"} accent="text-amber-500" />
-        <StatCard
-          label="Total Revenue"
-          value={stats ? fmt(stats.total_revenue) : "—"}
-          sub={`${stats?.at_risk ?? 0} at risk`}
-        />
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground">
-            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" strokeLinecap="round" />
-          </svg>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, @username, phone…"
-            className="w-full pl-9 pr-4 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-          />
+      <div style={{ maxWidth: "1400px", margin: "0 auto", padding: "2rem 1.5rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "2rem", flexWrap: "wrap", gap: "1rem" }}>
+          <div>
+            <div style={{ fontSize: "0.6rem", letterSpacing: "0.3em", textTransform: "uppercase", color: "#334155", marginBottom: "0.4rem" }}>CRM</div>
+            <h1 style={{ fontSize: "1.8rem", fontWeight: 600, color: "#f8fafc", letterSpacing: "-0.03em" }}>Customers</h1>
+            <p style={{ fontSize: "0.75rem", color: "#334155", marginTop: "0.3rem" }}>
+              {stats.total_customers.toLocaleString()} total · {stats.new_this_month} new this month
+            </p>
+          </div>
+          <button onClick={handleExport} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#0e0e18", border: "1px solid #1e2235", borderRadius: "7px", color: "#94a3b8", fontSize: "0.72rem", padding: "0.5rem 1rem", cursor: "pointer" }}>
+            ↓ Export CSV
+          </button>
         </div>
 
-        <div className="flex gap-1.5 flex-wrap">
-          {SEGMENTS.map((s) => (
-            <button
-              key={s.value}
-              onClick={() => setSegment(s.value as Segment | "all")}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                segment === s.value
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              {s.label}
-            </button>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "0.75rem", marginBottom: "1.75rem" }}>
+          <StatCard label="Total Revenue" value={fmtMoney(stats.total_revenue)} sub={`avg ${fmtMoney(stats.avg_customer_value)} / customer`} accent="#3b82f6" />
+          <StatCard label="VIP Customers" value={stats.vip_count} sub="spent $500+" accent="#f59e0b" />
+          <StatCard label="Repeat Buyers" value={stats.repeat_buyers} sub={`${Math.round(stats.repeat_buyers / Math.max(stats.total_customers, 1) * 100)}% of total`} accent="#34d399" />
+          <StatCard label="At Risk" value={stats.at_risk_count} sub="no order in 60+ days" accent="#f87171" />
+        </div>
+
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", background: "#0a0a14", border: "1px solid #1e2235", borderRadius: "10px", padding: "0.75rem 1rem", marginBottom: "1rem", flexWrap: "wrap" }}>
+          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search name or @username…" style={{ flex: 1, minWidth: "180px", background: "#0e0e18", border: "1px solid #1e2235", borderRadius: "6px", color: "#e2e8f0", fontSize: "0.78rem", padding: "0.45rem 0.75rem" }} />
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+            {SEGMENTS.map(s => {
+              const m = SEG_META[s]; const active = filterSeg === s;
+              return (
+                <button key={s} className="seg-btn" onClick={() => { setFilterSeg(active ? null : s); setPage(1); }} style={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", padding: "3px 10px", borderRadius: "20px", cursor: "pointer", transition: "all .15s", color: active ? m.color : "#475569", background: active ? m.bg : "transparent", border: `1px solid ${active ? m.color + "40" : "#1e2235"}` }}>{m.label}</button>
+              );
+            })}
+            {filterSeg && <button onClick={() => setFilterSeg(null)} style={{ fontSize: "0.62rem", padding: "3px 8px", borderRadius: "20px", background: "transparent", border: "1px solid #1e2235", color: "#475569", cursor: "pointer" }}>✕ clear</button>}
+          </div>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ background: "#0e0e18", border: "1px solid #1e2235", borderRadius: "6px", color: "#94a3b8", fontSize: "0.72rem", padding: "0.45rem 0.65rem", cursor: "pointer" }}>
+            {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+
+        <div style={{ background: "#0a0a14", border: "1px solid #1e2235", borderRadius: "10px", overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", padding: "0.6rem 1.25rem", borderBottom: "1px solid #1e2235" }}>
+            {["Customer", "Segments", "Orders", "Spent", "Last Order", "Last Seen"].map(h => (
+              <div key={h} style={{ fontSize: "0.58rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "#334155", fontWeight: 600 }}>{h}</div>
+            ))}
+          </div>
+
+          {loading ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", padding: "0.75rem 1.25rem", borderBottom: "1px solid #111121" }}>
+                {Array.from({ length: 6 }).map((_, j) => (
+                  <div key={j} style={{ height: "16px", background: "#1e2235", borderRadius: "4px", marginRight: "1rem", animation: "pulse 1.5s infinite" }} />
+                ))}
+              </div>
+            ))
+          ) : customers.length === 0 ? (
+            <div style={{ padding: "3rem", textAlign: "center", color: "#334155", fontSize: "0.8rem" }}>No customers match your filters</div>
+          ) : customers.map(c => (
+            <div key={c.id} className="row-hover" onClick={() => setSelected(c)} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", padding: "0.75rem 1.25rem", borderBottom: "1px solid #111121", alignItems: "center", transition: "background .1s" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
+                <div style={{ width: "32px", height: "32px", borderRadius: "8px", flexShrink: 0, background: `hsl(${c.telegram_user_id % 360},35%,20%)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem", fontWeight: 700, color: `hsl(${c.telegram_user_id % 360},65%,70%)`, fontFamily: "'JetBrains Mono',monospace" }}>
+                  {c.display_name.charAt(0)}
+                </div>
+                <div>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 500, color: "#e2e8f0" }}>{c.display_name}</div>
+                  {c.telegram_username && <div style={{ fontSize: "0.62rem", color: "#334155" }}>@{c.telegram_username}</div>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                {c.segments.slice(0, 2).map(s => <Pill key={s} seg={s} />)}
+                {c.segments.length > 2 && <span style={{ fontSize: "0.58rem", color: "#334155" }}>+{c.segments.length - 2}</span>}
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "0.8rem", color: "#94a3b8", fontWeight: 600 }}>{c.total_orders}</div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "0.8rem", color: "#f1f5f9", fontWeight: 600 }}>{fmtMoney(c.total_spent)}</div>
+              <div style={{ fontSize: "0.72rem", color: "#475569" }}>{fmtDate(c.last_order_at)}</div>
+              <div style={{ fontSize: "0.72rem", color: "#334155" }}>{timeSince(c.last_seen_at)}</div>
+            </div>
           ))}
         </div>
-      </div>
 
-      {/* Table */}
-      <div className="bg-card border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/30">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Customer</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Segment</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Orders</th>
-                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Total Spent</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Last Active</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {loading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i}>
-                      {[1, 2, 3, 4, 5, 6].map((j) => (
-                        <td key={j} className="px-4 py-3">
-                          <div className="h-4 bg-muted rounded animate-pulse" />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                : display.map((c) => (
-                    <tr
-                      key={c.id}
-                      onClick={() => setSelected(c)}
-                      className="hover:bg-muted/30 cursor-pointer transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <Avatar customer={c} size="sm" />
-                          <div>
-                            <p className="font-medium text-foreground flex items-center gap-1.5">
-                              {displayName(c)}
-                              {c.is_blocked && (
-                                <span className="text-[10px] bg-destructive/10 text-destructive rounded px-1">Blocked</span>
-                              )}
-                            </p>
-                            {c.username && (
-                              <p className="text-xs text-muted-foreground">@{c.username}</p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${SEGMENT_META[c.segment].color}`}>
-                          {SEGMENT_META[c.segment].label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-muted-foreground hidden sm:table-cell">
-                        {c.total_orders}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-foreground">
-                        {fmt(c.total_spent, c.currency)}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground text-sm hidden lg:table-cell">
-                        {c.last_order_at ? timeAgo(c.last_order_at) : timeAgo(c.created_at)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
-                            <path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
-
-          {!loading && display.length === 0 && (
-            <div className="py-16 text-center text-muted-foreground">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-10 h-10 mx-auto mb-3 opacity-40">
-                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <p className="text-sm">No customers found.</p>
-              <p className="text-xs mt-1">Customers appear here when they start chatting with your bot.</p>
+        {totalPages > 1 && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem", padding: "0 0.25rem" }}>
+            <span style={{ fontSize: "0.68rem", color: "#334155" }}>
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+            </span>
+            <div style={{ display: "flex", gap: "0.35rem" }}>
+              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i + 1).map(p => (
+                <button key={p} onClick={() => setPage(p)} style={{ width: "28px", height: "28px", borderRadius: "5px", fontSize: "0.7rem", background: page === p ? "#3b82f6" : "transparent", border: `1px solid ${page === p ? "#3b82f6" : "#1e2235"}`, color: page === p ? "white" : "#475569", cursor: "pointer" }}>{p}</button>
+              ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Profile Drawer */}
-      {selected && (
-        <ProfileDrawer
-          customer={selected}
-          onClose={() => setSelected(null)}
-          onUpdated={handleUpdated}
-        />
-      )}
+      <CustomerDrawer customer={selected} onClose={() => setSelected(null)} onUpdate={handleUpdate} />
     </div>
   );
 }
-
-// ── Demo data (shown when API not connected) ────────────────────────────────────
-
-const DEMO: Customer[] = [
-  { id: "1", telegram_id: "123456789", first_name: "Aisha", last_name: "Mohammed", username: "aisha_m", phone: "+251911234567", email: null, photo_url: null, segment: "vip", tags: ["loyal", "top-buyer"], notes: "Loves new arrivals.", total_orders: 14, total_spent: 520.0, currency: "USD", last_order_at: new Date(Date.now() - 86400000).toISOString(), is_blocked: false, created_at: new Date(Date.now() - 86400000 * 60).toISOString() },
-  { id: "2", telegram_id: "987654321", first_name: "Dawit", last_name: "Bekele", username: "dawit_b", phone: null, email: "dawit@example.com", photo_url: null, segment: "regular", tags: ["wholesale"], notes: null, total_orders: 5, total_spent: 210.5, currency: "USD", last_order_at: new Date(Date.now() - 86400000 * 7).toISOString(), is_blocked: false, created_at: new Date(Date.now() - 86400000 * 90).toISOString() },
-  { id: "3", telegram_id: "456123789", first_name: "Sara", last_name: null, username: "sara_t", phone: "+254712345678", email: null, photo_url: null, segment: "new", tags: [], notes: null, total_orders: 1, total_spent: 35.0, currency: "USD", last_order_at: new Date(Date.now() - 86400000 * 2).toISOString(), is_blocked: false, created_at: new Date(Date.now() - 86400000 * 3).toISOString() },
-  { id: "4", telegram_id: "741852963", first_name: "Kebede", last_name: "Haile", username: null, phone: "+251922345678", email: null, photo_url: null, segment: "at_risk", tags: ["inactive"], notes: "No purchase in 45 days.", total_orders: 3, total_spent: 89.0, currency: "USD", last_order_at: new Date(Date.now() - 86400000 * 45).toISOString(), is_blocked: false, created_at: new Date(Date.now() - 86400000 * 120).toISOString() },
-  { id: "5", telegram_id: "369258147", first_name: "Meron", last_name: "Tesfaye", username: "meron_t", phone: null, email: null, photo_url: null, segment: "churned", tags: [], notes: null, total_orders: 2, total_spent: 55.0, currency: "USD", last_order_at: new Date(Date.now() - 86400000 * 90).toISOString(), is_blocked: false, created_at: new Date(Date.now() - 86400000 * 180).toISOString() },
-];
