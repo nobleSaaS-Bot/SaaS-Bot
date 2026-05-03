@@ -8,6 +8,9 @@ DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncp
 engine = create_async_engine(DATABASE_URL, echo=settings.DEBUG)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# Alias used by handlers.py and other non-request code
+async_session_factory = AsyncSessionLocal
+
 
 class Base(DeclarativeBase):
     pass
