@@ -1,0 +1,47 @@
+name: Gemini CLI Code Review
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gemini-code-review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Install Gemini CLI
+        run: npm install -g @google/gemini-cli@latest
+
+      - name: Run Gemini CLI Multi-Tenant Audit
+        run: |
+          gemini analyze . \
+          --prompt "Focus on routes/ and services/. Flag any database queries missing 'store_id' or 'business_id' filters. Ensure 'upsert_customer_from_telegram' is called in handlers. Also flag use of raw SQL queries and require all external API calls to be wrapped in try/catch."
+          > gemini_report.txt
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Upload Gemini CLI report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-codereview-report
+          path: gemini_report.txt
