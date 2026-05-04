@@ -8,16 +8,22 @@ on:
 jobs:
   gemini-code-review:
     runs-on: ubuntu-latest
+    # Recommended: Opt into Node.js 24 execution now to verify compatibility
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
+      # Bumped to v5 for Node.js 24 support
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
+      # Bumped to v5 for Node.js 24 support
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '20' # The app still uses Node 20, but the ACTION runner uses 24
 
+      # Bumped to v5 for Node.js 24 support
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -34,13 +40,9 @@ jobs:
 
       - name: Run Gemini CLI Multi-Tenant Audit
         run: |
-          # 1. Added --model gemini-2.5-flash to bypass quota errors
-          # 2. Replaced 'analyze .' with -p to fix positional prompt errors
-          # 3. Added --yolo to prevent hanging in headless mode
           gemini --yolo --model gemini-2.5-flash -p "Analyze the files in this directory. Focus on routes/ and services/. Flag any database queries missing 'store_id' or 'business_id' filters. Ensure 'upsert_customer_from_telegram' is called in handlers. Also flag use of raw SQL queries and require all external API calls to be wrapped in try/catch." > gemini_report.txt
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # 4. FIX for Exit Code 55: Grant trust to the current workspace
           GEMINI_CLI_TRUST_WORKSPACE: true
 
       - name: Upload Gemini CLI report
