@@ -34,9 +34,7 @@ jobs:
 
       - name: Run Gemini CLI Multi-Tenant Audit
         run: |
-          gemini analyze . \
-          --prompt "Focus on routes/ and services/. Flag any database queries missing 'store_id' or 'business_id' filters. Ensure 'upsert_customer_from_telegram' is called in handlers. Also flag use of raw SQL queries and require all external API calls to be wrapped in try/catch."
-          > gemini_report.txt
+          gemini --yolo -p "Analyze the files in this directory. Focus on routes/ and services/. Flag any database queries missing 'store_id' or 'business_id' filters. Ensure 'upsert_customer_from_telegram' is called in handlers. Also flag use of raw SQL queries and require all external API calls to be wrapped in try/catch." > gemini_report.txt
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
