@@ -21,6 +21,7 @@ class Store(Base):
     banner_url: Mapped[str | None] = mapped_column(Text)
     theme: Mapped[dict | None] = mapped_column(JSON)
     currency: Mapped[str] = mapped_column(String(10), default="USD")
+    plan: Mapped[str] = mapped_column(String(50), default="starter")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), onupdate=func.now())
@@ -30,5 +31,4 @@ class Store(Base):
     categories = relationship("Category", back_populates="store", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="store")
     flows = relationship("Flow", back_populates="store", cascade="all, delete-orphan")
-    customers = relationship("Customer", back_populates="store", cascade="all, delete-orphan")
     broadcasts = relationship("Broadcast", back_populates="store", cascade="all, delete-orphan")

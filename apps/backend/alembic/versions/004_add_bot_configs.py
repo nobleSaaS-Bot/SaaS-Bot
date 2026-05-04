@@ -15,23 +15,13 @@ depends_on = None
 
 
 def upgrade() -> None:
-    bot_status_enum = postgresql.ENUM(
-        "pending",
-        "active",
-        "paused",
-        "webhook_failed",
-        "revoked",
-        name="bot_status_enum",
-        create_type=True,
-    )
-    bot_status_enum.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "bot_configs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("id", sa.String(), primary_key=True),
         sa.Column(
             "business_id",
-            postgresql.UUID(as_uuid=True),
+            sa.String(),
             sa.ForeignKey("businesses.id", ondelete="CASCADE"),
             nullable=False,
         ),
@@ -41,20 +31,11 @@ def upgrade() -> None:
         sa.Column("telegram_bot_id", sa.String(32), nullable=False, unique=True),
         sa.Column("webhook_secret", sa.String(64), nullable=False, unique=True),
         sa.Column("registered_webhook_url", sa.Text, nullable=True),
-        sa.Column(
-            "status",
-            sa.Enum(
-                "pending", "active", "paused", "webhook_failed", "revoked",
-                name="bot_status_enum",
-                create_type=False,
-            ),
-            nullable=False,
-            server_default="pending",
-        ),
+        sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
         sa.Column("is_primary", sa.Boolean, nullable=False, server_default="true"),
         sa.Column("last_webhook_error", sa.Text, nullable=True),
         sa.Column("created_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime, nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime, nullable=False, server_default=sa.func.now()),
         sa.Column("webhook_registered_at", sa.DateTime, nullable=True),
     )
 

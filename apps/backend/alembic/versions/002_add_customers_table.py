@@ -17,10 +17,10 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "customers",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("id", sa.String(), primary_key=True),
         sa.Column(
             "business_id",
-            postgresql.UUID(as_uuid=True),
+            sa.String(),
             sa.ForeignKey("businesses.id", ondelete="CASCADE"),
             nullable=False,
         ),
@@ -49,7 +49,7 @@ def upgrade() -> None:
         "uq_customer_per_business", "customers", ["business_id", "telegram_user_id"]
     )
     op.create_index("ix_customers_business_id", "customers", ["business_id"])
-    op.create_index("ix_customers_telegram_user", "customers", ["telegram_user_id"])
+    op.create_index("ix_customers_telegram_user_id", "customers", ["telegram_user_id"])
     op.create_index("ix_customers_total_spent", "customers", ["business_id", "total_spent"])
     op.create_index("ix_customers_last_order_at", "customers", ["business_id", "last_order_at"])
 
@@ -57,7 +57,7 @@ def upgrade() -> None:
         "orders",
         sa.Column(
             "customer_id",
-            postgresql.UUID(as_uuid=True),
+            sa.String(),
             sa.ForeignKey("customers.id", ondelete="SET NULL"),
             nullable=True,
         ),
@@ -68,4 +68,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_orders_customer_id", "orders")
     op.drop_column("orders", "customer_id")
+    op.drop_index("ix_customers_last_order_at", "customers")
+    op.drop_index("ix_customers_total_spent", "customers")
+    op.drop_index("ix_customers_telegram_user_id", "customers")
+    op.drop_index("ix_customers_business_id", "customers")
     op.drop_table("customers")

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -17,10 +18,27 @@ import models.session
 import models.flow
 import models.payment
 import models.subscription
+import models.customer
+import models.broadcast
+import models.bot_config
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Override URL from environment so we never hardcode credentials.
+# asyncpg does not accept sslmode in the URL — strip it and pass ssl=False via
+# connect_args instead (Replit's internal Postgres doesn't require TLS).
+_raw_url = os.environ.get("DATABASE_URL", "")
+if _raw_url:
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+    _parsed = urlparse(_raw_url)
+    _qs = {k: v for k, v in parse_qs(_parsed.query).items() if k != "sslmode"}
+    _clean = _parsed._replace(
+        scheme="postgresql+asyncpg",
+        query=urlencode({k: v[0] for k, v in _qs.items()}),
+    )
+    config.set_main_option("sqlalchemy.url", urlunparse(_clean))
 
 target_metadata = Base.metadata
 

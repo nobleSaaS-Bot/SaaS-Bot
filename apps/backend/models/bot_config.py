@@ -27,7 +27,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -48,11 +47,11 @@ class BotConfig(Base):
     """
     __tablename__ = "bot_configs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
 
     # ── Tenant ownership ──────────────────────────────────────────────────
     business_id = Column(
-        UUID(as_uuid=True),
+        String,
         ForeignKey("businesses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -84,7 +83,7 @@ class BotConfig(Base):
 
     # ── State ─────────────────────────────────────────────────────────────
     status = Column(
-        Enum(BotStatus, name="bot_status_enum"),
+        Enum(BotStatus, name="bot_status_enum", native_enum=False),
         nullable=False,
         default=BotStatus.PENDING,
     )
