@@ -32,7 +32,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -41,11 +41,11 @@ from app.database import Base
 class Customer(Base):
     __tablename__ = "customers"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # ── Tenant ownership ──────────────────────────────────────────────────
     business_id = Column(
-        String,
+        UUID(as_uuid=True),
         ForeignKey("businesses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -59,23 +59,25 @@ class Customer(Base):
     language_code = Column(String(8), nullable=True)            # "en", "am", "sw", etc.
 
     # ── Derived display name (computed on write) ──────────────────────────
+    # Stored to avoid recomputing: first_name + last_name or @username or id
     display_name = Column(String(256), nullable=False, default="Unknown")
 
     # ── Engagement stats (denormalised, updated by order_service) ─────────
     total_orders = Column(Integer, nullable=False, default=0)
-    total_spent = Column(Float, nullable=False, default=0.0)
+    total_spent = Column(Float, nullable=False, default=0.0)    # In store's currency
     average_order_value = Column(Float, nullable=False, default=0.0)
     last_order_at = Column(DateTime, nullable=True)
     first_order_at = Column(DateTime, nullable=True)
 
     # ── CRM fields ────────────────────────────────────────────────────────
     segments = Column(ARRAY(String), nullable=False, server_default="{}")
-    notes = Column(Text, nullable=True)
+    # e.g. ["vip", "repeat_buyer", "at_risk", "new"]
+    notes = Column(Text, nullable=True)                         # Merchant internal notes
     tags = Column(ARRAY(String), nullable=False, server_default="{}")
 
     # ── Bot interaction ───────────────────────────────────────────────────
     is_blocked = Column(Boolean, nullable=False, default=False)
-    last_seen_at = Column(DateTime, nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)              # Last bot interaction
     message_count = Column(Integer, nullable=False, default=0)
 
     # ── Timestamps ────────────────────────────────────────────────────────

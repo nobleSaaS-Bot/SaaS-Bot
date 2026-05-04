@@ -8,6 +8,11 @@ from routes import auth, products, stores, flows, payments, billing, ai, analyti
 from routes.webhooks import telegram, stripe, telebirr, mpesa
 from core.telegram_client import close_http_client
 
+# New imports
+from routes.bots import router as bots_router
+from routes.webhooks.telegram import router as tg_webhook_router
+from core.telegram_client import close_http_client
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,7 +52,17 @@ app.include_router(stripe.router, prefix="/webhooks/stripe", tags=["webhooks"])
 app.include_router(telebirr.router, prefix="/webhooks/telebirr", tags=["webhooks"])
 app.include_router(mpesa.router, prefix="/webhooks/mpesa", tags=["webhooks"])
 
+# New routers
+app.include_router(bots_router)
+app.include_router(tg_webhook_router)
+
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# New shutdown event
+@app.on_event("shutdown")
+async def shutdown():
+    await close_http_client()
